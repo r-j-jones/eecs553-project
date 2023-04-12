@@ -1,0 +1,42 @@
+
+
+addpath('/Users/robertjones/Desktop/W23/553/project/clean_04112023');
+
+cd /Users/robertjones/Desktop/W23/553/project/clean_04112023/test_wallflower_bootstrap
+
+testImageDir = pwd; %'/Users/robertjones/Desktop/W23/553/project/data/wallflower/Bootstrap';
+testImageName = 'b00299.bmp';
+testImagePath = [testImageDir filesep testImageName];
+testimage = imread(testImagePath);
+
+figure; 
+imshow(testimage,'Border','tight');
+title([testImageName ' (' class(testimage) ')']);
+set(gcf,'position',[481 178 567 452]);
+
+% convert image from uint8 to double (requires Image Proc Toolbox)
+M = im2double(testimage);
+Mgray = rgb2gray(M);
+
+
+trueImageDir = pwd; %'/Users/robertjones/Desktop/W23/553/project/data/wallflower/Bootstrap';
+trueImageName = 'hand_segmented_00299.bmp';
+trueImagePath = [trueImageDir filesep trueImageName];
+trueimage = imread(trueImagePath);
+truegray = rgb2gray(trueimage);
+truegray = im2double(truegray);
+
+
+
+
+[u,s,v]=svd(Mgray);
+
+r_est = 5;
+k = 10; 
+% k = r_est*2;
+n_est = 0.15;
+[ Uhat ] = LoR_noisy_test(Mgray, r_est, k, n_est);
+
+[ Coeffs ] = Sp_noisy(Mgray, Uhat, k, n_est, r_est);
+
+Lhat = Uhat*Coeffs;
