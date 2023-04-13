@@ -50,9 +50,8 @@ for outerind=1:d-r
     while sval_rplus1>noiselevel
         kcols = sort(randsample(N,k));       % this is random "k" col inds in paper
         M_prime_kappa_i = M_kappa_i(:,kcols);      % M'_kappa_i matrix
-%         svals = svds(M_prime_kappa_i, r+1);   % the first r+1 svdvals of M'_kappa_i
-%         svals = svds(double(M_prime_kappa_i), r+1);   % the first r+1 svdvals of M'_kappa_i
-        [~,svals,~] = svd(M_prime_kappa_i,"econ","vector");
+        svals = svds(double(M_prime_kappa_i), r+1);   % the first r+1 svdvals of M'_kappa_i
+%         [~,svals,~] = svd(M_prime_kappa_i,"econ","vector");
         sval_rplus1 = svals(end);    % the r+1th svdval 
     end
 
@@ -88,7 +87,7 @@ for outerind=1:d-r
 end
 
 % Get subspace Uhat = last r left SingVecs of A (which appx.'s ker(A.T)) 
-[Ua, ~, ~] = svd(A,"econ");
+[Ua, ~, ~] = svd(A);
 Uhat = Ua(:,end-r+1:end);
 % Uhat = orth(Uhat);
 

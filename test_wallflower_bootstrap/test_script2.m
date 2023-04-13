@@ -11,26 +11,7 @@ info = imfinfo(trueImagePath);
 testImageNums = 0:299;
 ntest = length(testImageNums);
 dims = [info.Height, info.Width];
-Data = zeros(dims(1)*dims(2)/4, length(testImageNums),'single');
-% meanimg = zeros(dims(1),dims(2));
-% fullimg = zeros(dims(1),dims(2), 3, length(testImageNums));
-for t=1:ntest
-    num = testImageNums(t);
-    fname = [testImageDir filesep 'b' sprintf('%05d',num) '.bmp'];
-    tmp = imread(fname);
-    tmp = imresize(tmp,0.5);
-    tmp = im2double(tmp);
-%     fullimg(:,:,:,t) = tmp;
-%     meanimg = meanimg + tmp;
-    tmp = rgb2gray(tmp);
-%     tmp = imresize(Data,0.5);
-    Data(:,t) = single(reshape(tmp,[],1));
-end
-
-testImageNums = 0:299;
-ntest = length(testImageNums);
-dims = [info.Height, info.Width];
-Data2 = zeros(dims(1)*dims(2), length(testImageNums),'single');
+Data = zeros(dims(1)*dims(2), length(testImageNums),'single');
 % meanimg = zeros(dims(1),dims(2));
 % fullimg = zeros(dims(1),dims(2), 3, length(testImageNums));
 for t=1:ntest
@@ -43,15 +24,26 @@ for t=1:ntest
 %     meanimg = meanimg + tmp;
     tmp = rgb2gray(tmp);
 %     tmp = imresize(Data,0.5);
-    Data2(:,t) = single(reshape(tmp,[],1));
+    Data(:,t) = single(reshape(tmp,[],1));
 end
+clear tmp
 
-
-figure; 
-imshow(reshape(Data2(:,100),[120 160]),[]);
-
-figure; 
-imshow(reshape(Data(:,100),[60 80]),[]);
+% Data2 = zeros(dims(1)*dims(2), length(testImageNums),'single');
+% for t=1:ntest
+%     num = testImageNums(t);
+%     fname = [testImageDir filesep 'b' sprintf('%05d',num) '.bmp'];
+%     tmp = imread(fname);
+%     tmp = im2double(tmp);
+%     tmp = rgb2gray(tmp);
+%     Data2(:,t) = single(reshape(tmp,[],1));
+% end
+% 
+% 
+% figure; 
+% imshow(reshape(Data2(:,100),[120 160]),[]);
+% 
+% figure; 
+% imshow(reshape(Data(:,100),[60 80]),[]);
 
 
 % meanimg = meanimg/ntest;

@@ -32,72 +32,74 @@ A = zeros(d,0,'single');     % Matrix to store the information of the projection
 
 otic = tic;
 
-% Loop to get d-r subspace projs (used to "stitch" together U)
-for outerind=1:d-r
-%     disp(outerind); 
-    itic = tic;
-
-    % * omega_i : r+1 random column indices
-    omega_i = sort(randsample(d,r+1));
+while rank(A)<d-r
+    % Loop to get d-r subspace projs (used to "stitch" together U)
+    for outerind=1:d-r
+    %     disp(outerind); 
+        itic = tic;
     
-    % * kappa_i : k random indices, including omega_i
-    new_inds = randsample(setdiff(1:d, omega_i), k-r-1);
-    kappa_i = sort(union(omega_i, new_inds));
-    if length(kappa_i)~=length(unique(kappa_i)) || length(kappa_i)~=k
-        warning('Error- kappa_i has incompatible dimension (should be length k)');
-    end
-    
-    % * M_kappa_i : extract kappa_i rows from data matrix M 
-    M_kappa_i = M(kappa_i,:);
-
-    %%% Repeat: extract k random cols of M_kappa_i <- M'_kappa_i
-    %%% Until:  (r+1)th sing val of M'_kappa_i <= noise level
-    %    
-    sval_rplus1 = noiselevel * 1e3;  % note: arbitrary starting value 
-%     cnt=0; errs=[];
-    while sval_rplus1>noiselevel
-        kcols = sort(randsample(N,k));       % this is random "k" col inds in paper
-        M_prime_kappa_i = M_kappa_i(:,kcols);      % M'_kappa_i matrix
-%         svals = svds(M_prime_kappa_i, r+1);   % the first r+1 svdvals of M'_kappa_i
-        [~,svals,~] = svd(M_prime_kappa_i,"econ","vector");
-        sval_rplus1 = svals(end);    % the r+1th svdval 
-%         cnt=cnt+1; errs(end+1)=sval_rplus1;
-%         if mod(cnt,1000)==0
-%             fprintf('%g\n',sval_rplus1);
-%         end
-    end
-%     disp('svalr1 found');
-
-    % Get r-leading left singular vectors of M'_kappa_i [Alg1 lines 14-15]
-    [Vtmp,~,~] = svd(M_prime_kappa_i);
-    V_kappa_i = Vtmp(:,1:r);
-
-    % * v_i : extract subset of r entries of omega_i [Alg1 lines 16-17]
-    %  [NOTE: Alg1 says "subset of kappa_i", but it SHOULD BE omega_i]
-    v_i = sort(randsample(omega_i, r));
-
-    % vec of j values : find elements of ki not in vi [Alg1 line 18]
-    js = setdiff(kappa_i, v_i);
-    
-    % iterate through j (element of kappa_i NOT IN v_i) [Alg1 line 18]
-    for ind=1:length(js)
-        % an 
-        j = js(ind);
-        % omega_ij = (v_i UNION j)  [Alg1 line 19]
-        omega_ij = sort(union(v_i, j));
-        % V_omega_ij = omega_ij rows of V_kappa_i
-        V_omega_ij = V_kappa_i(ismember(kappa_i,omega_ij),:);
-        % nonzero vec in ker(transpose(V_omega_ij)) [Alg1 lines 20-21]
-        a_omega_ij = null(V_omega_ij');
-        % double check a_omega_ij is nonzero vector
-        if ~isempty(a_omega_ij) && (nnz(a_omega_ij==0)~=numel(a_omega_ij))
-            % insert a_omega_ij into A [Alg1 lines 22-23]
-            aij = zeros(d,1);
-            aij(omega_ij) = a_omega_ij;
-            A(:,end+1) = single(aij);
+        % * omega_i : r+1 random column indices
+        omega_i = sort(randsample(d,r+1));
+        
+        % * kappa_i : k random indices, including omega_i
+        new_inds = randsample(setdiff(1:d, omega_i), k-r-1);
+        kappa_i = sort(union(omega_i, new_inds));
+        if length(kappa_i)~=length(unique(kappa_i)) || length(kappa_i)~=k
+            warning('Error- kappa_i has incompatible dimension (should be length k)');
         end
+        
+        % * M_kappa_i : extract kappa_i rows from data matrix M 
+        M_kappa_i = M(kappa_i,:);
+    
+        %%% Repeat: extract k random cols of M_kappa_i <- M'_kappa_i
+        %%% Until:  (r+1)th sing val of M'_kappa_i <= noise level
+        %    
+        sval_rplus1 = noiselevel * 1e3;  % note: arbitrary starting value 
+    %     cnt=0; errs=[];
+        while sval_rplus1>noiselevel
+            kcols = sort(randsample(N,k));       % this is random "k" col inds in paper
+            M_prime_kappa_i = M_kappa_i(:,kcols);      % M'_kappa_i matrix
+    %         svals = svds(M_prime_kappa_i, r+1);   % the first r+1 svdvals of M'_kappa_i
+            [~,svals,~] = svd(M_prime_kappa_i,"econ","vector");
+            sval_rplus1 = svals(end);    % the r+1th svdval 
+    %         cnt=cnt+1; errs(end+1)=sval_rplus1;
+    %         if mod(cnt,1000)==0
+    %             fprintf('%g\n',sval_rplus1);
+    %         end
+        end
+    %     disp('svalr1 found');
+    
+        % Get r-leading left singular vectors of M'_kappa_i [Alg1 lines 14-15]
+        [Vtmp,~,~] = svd(M_prime_kappa_i);
+        V_kappa_i = Vtmp(:,1:r);
+    
+        % * v_i : extract subset of r entries of omega_i [Alg1 lines 16-17]
+        %  [NOTE: Alg1 says "subset of kappa_i", but it SHOULD BE omega_i]
+        v_i = sort(randsample(omega_i, r));
+    
+        % vec of j values : find elements of ki not in vi [Alg1 line 18]
+        js = setdiff(kappa_i, v_i);
+        
+        % iterate through j (element of kappa_i NOT IN v_i) [Alg1 line 18]
+        for ind=1:length(js)
+            % an 
+            j = js(ind);
+            % omega_ij = (v_i UNION j)  [Alg1 line 19]
+            omega_ij = sort(union(v_i, j));
+            % V_omega_ij = omega_ij rows of V_kappa_i
+            V_omega_ij = V_kappa_i(ismember(kappa_i,omega_ij),:);
+            % nonzero vec in ker(transpose(V_omega_ij)) [Alg1 lines 20-21]
+            a_omega_ij = null(V_omega_ij');
+            % double check a_omega_ij is nonzero vector
+            if ~isempty(a_omega_ij) && (nnz(a_omega_ij==0)~=numel(a_omega_ij))
+                % insert a_omega_ij into A [Alg1 lines 22-23]
+                aij = zeros(d,1);
+                aij(omega_ij) = a_omega_ij;
+                A(:,end+1) = single(aij);
+            end
+        end
+        itoc = toc(itic); if mod(outerind,1000)==0,disp(itoc); end
     end
-    itoc = toc(itic); if mod(outerind,1000)==0,disp(itoc); end
 end
 
 otoc = toc(otic);
