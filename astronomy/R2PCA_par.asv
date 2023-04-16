@@ -1,0 +1,204 @@
+function [L,S] = R2PCA_par(M,r,tol)
+
+% ====================================================================
+% Decomposes a matrix M into its low-rank and sparse components using
+% the simplest version of the R2PCA algorithm introduced in
+%
+%   D. Pimentel-Alarcon, R. Nowak
+%   Random Consensus Robust PCA,
+%   International Conference on Artificial Intelligence and Statistics
+%   (AISTATS), 2017.
+%
+% Input:
+%   
+%   M = matrix with a combination of low-rank plus sparse component
+%   r = dimension of low-rank component.
+%
+% Output:
+%
+%   L = Low-rank component of M
+%   S = Sparse component of M
+%
+% Written by: D. Pimentel-Alarcon.
+% email: pimentelalar@wisc.edu
+% Created: 2017
+% =====================================================================
+
+if nargin<3
+    tol=1e-6;
+end
+fprintf('--Tol = %g\n',tol);
+
+if isempty(gcp)
+    ppool = parpool(12);
+end
+
+
+tic
+Uhat = LoR(M,r);        % 1st part of R2PCA: recover basis of low-rank component
+toc
+tic
+Coeffs = Sp(M,Uhat,tol);    % 2nd part of R2PCA: recover coefficients
+toc
+% load('test_Coeffs.mat','Coeffs');
+L = Uhat*Coeffs;        % Recover low-rank compoment
+S = M-L;                % Recover sparse component
+end
+
+
+% ===== 1st part of R2PCA: recover basis of low-rank component =====
+% ===== Try to find d-r uncorrupted (r+1)x(r+1) blocks (that are ===
+% ===== independent). Each block will give us a projection of the ==
+% ===== subspace. Then we "stitch" together all projections to =====
+% ===== recover the subspace =======================================
+function Uhat = LoR(M,r)
+
+[d,N] = size(M);    % Dimensions of the problem
+A = cell(1,d-r);
+
+
+% Loop to get d-r subspace projs (used to "stitch" together U)
+parfor outerind=1:d-r
+    Mtmp = M;
+    Atmp = zeros(d,1);
+
+    % = Select a random (r+1)x(r+1) block and check if it is corrupted =
+    oi = randsample(d,r+1);
+    oj = randsample(N,r+1);
+    
+    % == If the block is uncorrupted, keep it to obtain a projection ==
+    if rank(Mtmp(oi,oj))<=r
+%         toc
+
+        aoi = null(Mtmp(oi,oj)');
+        aoi = aoi(:,1);
+        Atmp(oi,1) = aoi;
+        
+        
+        
+%         fprintf(' itr %d  auxrank %d\n',itr,auxrank);
+        if mod(itr,10)==0, disp(itr); end
+        itr=itr+1;
+%         tic
+    end
+    
+end
+toc(atic)
+% Stitch all the projections into the whole subspace, given by
+% ker(A).  To avoid numerical issues, use svd instead of null.
+[Uhat,~,~] = svd(A);
+Uhat = Uhat(:,d-r+1:d);
+end
+
+
+
+% ============ 2nd part of R2PCA: recover coefficients ============
+% ====== Try to find r+1 uncorrupted entries in each column =======
+% ====== This entries determine the coefficient of the column =====
+function Coeffs = Sp(M,U,tol)
+
+
+[d,N] = size(M);        % Dimensions of the problem
+r = size(U,2);          % rank of the low-rank component
+% Coeffs = zeros(r,N);    % Matrix to keep the coefficients
+Coeffs = cell(1,N);
+
+% ======== Look one column at a time ========
+parfor j=1:N  
+    
+    Coeffstmp = zeros(r,1);
+    Utmp = U;
+    Mtmp = M(:,j);
+
+    % Have we already found k uncorrupted entries in this column?
+    resp = 0;   
+%     resp_cnt = 0;
+%     minerr = 1e10;  
+%     bestcoeffs = zeros(r,1);  % for unsuccessful
+%     tic; 
+    
+    % ======== Start looking for uncorrupted entries ========
+    while resp==0 %&& toc<1e+2/N
+        
+        % == Take k random entries, and check if they are corrupted ==
+        oi = randsample(d,r+1);
+%         Uoi = U(oi,:);
+%         xoi = M(oi,j);
+        Uoi = Utmp(oi,:);
+        xoi = Mtmp(oi); 
+        Coeffstmp(:,1) = (Ufcoloroi'*Uoi)\Uoi'*xoi;
+        xoiPerp = xoi-Uoi*Coeffstmp;
+        
+        % == If the entries are uncorrupted, use them to obtain a
+        % == coefficient and move on to the next column
+        if norm(xoiPerp)/norm(xoi) < tol
+            resp = 1; 
+        end
+    end
+
+    if mod(j,100)==0, fprintf(' %d done\n',j); end
+
+    Coeffs{j} = Coeffstmp;
+end
+
+Coeffs = cat(2,Coeffs{:});
+
+end
+
+
+
+
+
+
+
+% function Uhat = LoR(M,r)
+% 
+% [d,N] = size(M);    % Dimensions of the problem
+% A = [];             % Matrix to store the information of the projections
+% 
+% %In this experiment, since things are so coherent, we might run into
+% %numerical issues if we just check rank(A).  So we can use an auxiliary
+% %matrix to verify whether Omega satisfies the subspace identifiability
+% %conditions in Lemma 1.
+% auxU = randn(d,r);
+% auxA = [];
+% itr=1;
+% 
+% auxrank = rank(auxA);
+% 
+% atic=tic;
+% % ======== Start looking for uncorrupted blocks ========
+% while auxrank<d-r
+%     
+%     % = Select a random (r+1)x(r+1) block and check if it is corrupted =
+%     oi = randsample(d,r+1);
+%     oj = randsample(N,r+1);
+%     
+%     % == If the block is uncorrupted, keep it to obtain a projection ==
+%     if rank(M(oi,oj))<=r
+% %         toc
+% 
+%         aoi = null(M(oi,oj)');
+%         aoi = aoi(:,1);
+%         A(oi,end+1) = aoi;
+%         
+%         auxaoi = null(auxU(oi,:)');
+%         auxA(oi,end+1) = auxaoi;
+% 
+%         auxrank = rank(auxA);
+%         
+% %         fprintf(' itr %d  auxrank %d\n',itr,auxrank);
+%         if mod(itr,10)==0, disp(itr); end
+%         itr=itr+1;
+% %         tic
+%     end
+%     
+% end
+% toc(atic)
+% % Stitch all the projections into the whole subspace, given by
+% % ker(A).  To avoid numerical issues, use svd instead of null.
+% [Uhat,~,~] = svd(A);
+% Uhat = Uhat(:,d-r+1:d);
+% end
+
+
