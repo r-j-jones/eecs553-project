@@ -1,0 +1,345 @@
+function [L, S, U, T, info] = nR2PCA(M, r, k, noiselevel, timelimit, verbose)
+
+% [L, S, U, T, info] = nR2PCA(M, r, k, noiselevel, timelimit, verbose)
+% 
+% Implementation of noisy variant of R2PCA, when M=L+S+W
+% ====================================================================
+%
+% Input:
+%   M = matrix with a combination of low-rank plus sparse component [2d-array]
+%   r = dimension of low-rank component.                    [int]
+%   k = search size of random blocks (need k>r; k=2r is usually good) [int]
+%   noiselevel = sigma/std dev of noise [numeric]
+%   timelimit[opt.] = use runtime limit (def. false) 
+%        ***SEE NOTE AT BOTTOM OF SCRIPT FOR MORE INFO ON TIMER***
+%   verbose[opt.] = >0 displays messages, <0 does not (def. true) [int]
+%
+% Output: [arrays]
+%   L = Low-rank component of M
+%   S = Sparse component of M
+%   U = PCA subspace
+%   T = PCA coefficients
+%
+% =====================================================================
+% 
+% Written by: D. Pimentel-Alarcon.
+% email: pimentelalar@wisc.edu
+% Created: 2017
+% 
+% Edited by: Robert Jones
+% email: rjjones@umich.edu
+% 04-19-2023
+% =====================================================================
+
+if nargin<6, verbose = 1; end
+if nargin<5, timelimit = false; end
+if nargin<4
+    fprintf('!!! not enough input args- run "help <funcname>" for usage\n');
+    return
+end
+
+%%% Create Timer struct based on value of [optional] input arg 'timelimit'
+Timer = makeTimer(timelimit);
+
+%%% Initialize info struct
+info = [];
+info.Timer = Timer;
+info.r = r;
+info.k = k;
+info.noiselevel = noiselevel;
+
+%%% Run LoR function (recover pca subspace U)
+if verbose>0, fprintf(' -Running LoR...\n'); end
+[U, info.U] = LoR(M, r, k, noiselevel, Timer, verbose);        % 1st part of R2PCA: recover basis of low-rank component
+
+%%% Decide whether to proceed to Sp function (recover pca coeffs T[heta])
+if ~isempty(U) && info.U.completionFlag
+
+    % If LoR completes successfully, continue on
+    if verbose>0, fprintf('--Running Sp...\n'); end
+    [T, info.T] = Sp(M, U, k, noiselevel, Timer, verbose);    % 2nd part of R2PCA: recover coefficients
+    
+    if verbose>0, fprintf('--Recovering L & S...\n'); end
+    L = U*T;        % Recover low-rank compoment
+    S = M-L;                % Recover sparse component
+else
+    % If cant finish LoR in runtime limit, stop+exit++return empty matrices
+    if verbose>0
+        fprintf('--Did not finish LoR function!\n');
+    end
+    T=[];
+    L=[];
+    S=[];
+    info.T = [];
+end
+
+end
+
+% ============ % ============ % ============ % ============ % ============ 
+
+
+
+
+% ============ % ============ % ============ % ============ % ============ 
+% ===== 1st part of R2PCA: recover basis of low-rank component =====
+% ============ % ============ % ============ % ============ % ============ 
+
+function [Uhat, info] = LoR(M, r, k, noiselevel, Timer, verbose)
+% [Uhat, info] = LoR(M, r, k, noiselevel, Timer, verbose)
+%  - Noisy LoR function to recover lowrank basis/pca subspace U
+% INPUTS: M=data matrix, r=rank, k=search window(k>r), 
+
+if nargin<6, verbose=1; end
+if nargin<5, Timer=[]; end
+if nargin<4, error('not enough input args'); end
+
+stic = tic;
+info.elapTime = [];
+
+[d,N] = size(M);    % Dimensions of the problem
+A = zeros(d,0);             % Matrix to store the information of the projections
+info.rankA = rank(A);
+
+%%% Check some things
+if d>N
+    fprintf('!! size(M,1)>size(M,2), consider transposing M to make things faster\n'); 
+end
+if k<=r
+    fprintf('cannot have k<=r, setting k=2r\n'); 
+    k=2*r; 
+end
+if ~isequal(class(M),'double')
+    M = double(M); %for call to svds(), and general stability
+end
+
+
+%In this experiment, since things are so coherent, we might run into
+%numerical issues if we just check rank(A).  So we can use an auxiliary
+%matrix to verify whether Omega satisfies the subspace identifiability
+%conditions in Lemma 1.
+auxU = randn(d,r);
+auxA = [];
+info.rankaux = rank(auxA); %to use for while loop criteria
+
+%other variables 
+info.itr = 0;  %track # of iterations until completion/termination
+info.completionFlag = true; % Did we finish successfully or stop early?
+info.sval_itr = 0;
+
+% ======== Start looking for uncorrupted blocks ========
+% while info.rankaux<d-r
+% while info.rankA<d-r
+for ii=1:d-r
+    info.itr = info.itr+1;
+
+    % * omega_i : r+1 random column indices
+    omega_i = sort(randsample(d,r+1));
+    
+    % * kappa_i : k random indices, including omega_i
+    new_inds = randsample(setdiff(1:d, omega_i), k-r-1);
+    kappa_i = union(omega_i, new_inds);
+    if length(kappa_i)~=length(unique(kappa_i)) || length(kappa_i)~=k
+        warning('Error- kappa_i has incompatible dimension (should be length k)');
+    end
+    
+    % * M_kappa_i : extract kappa_i rows from data matrix M 
+    M_kappa_i = M(kappa_i,:);
+
+    % check if (r+1)th singular value of M'_ki is <= noise level
+    sval_rplus1 = noiselevel * 1e3;  % note: arbitrary starting value 
+    while sval_rplus1 > noiselevel 
+        kcols = randsample(N,k);       
+        M_prime_kappa_i = M_kappa_i(:,kcols);      % M'_kappa_i matrix
+        svals = svds(M_prime_kappa_i, r+1);   % the first r+1 svdvals of M'_kappa_i
+        sval_rplus1 = svals(end);    % the r+1th svdval 
+        info.sval_itr = info.sval_itr + 1;  % increment sing.val iteration
+        if ~isempty(Timer) && Timer.timelimit && toc(stic)>Timer.maxtime
+            break
+        end
+        if verbose>0 && mod(info.sval_itr,1000)==0, disp(info.sval_itr); end
+    end
+
+    %terminate if time limit reached
+    if ~isempty(Timer) && Timer.timelimit && toc>Timer.maxtime 
+        if verbose>0, fprintf('--LoR noisy Runtime limit reached, exiting\n'); end
+        Uhat = [];
+        info.completionFlag = false;
+        info.elapTime = toc(stic);
+        return
+    end    
+
+    %%%%%%%%%%%%%  STEP 2:     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%% Estimate projections of U, insert into A matrix %%%%%%%%%%%%%%%%%%
+
+    % Get r-leading left singular vectors of M'_kappa_i [Alg1 lines 14-15]
+    [V_kappa_i,~,~] = svd(M_prime_kappa_i);
+    V_kappa_i = V_kappa_i(:,1:r);
+
+    % *v_i* : extract subset of r entries of omega_i [Alg1 lines 16-17]
+    %  [NOTE: Alg1 says "subset of kappa_i", but it SHOULD BE omega_i]
+    v_i = sort(randsample(omega_i, r));
+    %vec of j values : find elements of ki not in vi [Alg1 line 18]
+    js = setdiff(kappa_i, v_i);
+    
+    % iterate through j (element of kappa_i NOT IN v_i) [Alg1 line 18]   
+    for ind=1:length(js)
+        j = js(ind);
+        % *omega_ij* = (v_i UNION j)  [Alg1 line 19]
+        omega_ij = sort(union(v_i, j));
+        % *V_omega_ij* = omega_ij rows of V_kappa_i
+        V_omega_ij = V_kappa_i(ismember(kappa_i,omega_ij),:);
+        % nonzero vec in ker(transpose(V_omega_ij)) [Alg1 lines 20-21]
+        a_omega_ij = null(V_omega_ij');
+        % double check a_omega_ij is nonzero vector
+        if ~isempty(a_omega_ij) && (nnz(a_omega_ij==0)~=numel(a_omega_ij))
+            % insert a_omega_ij into A [Alg1 lines 22-23]
+            A(omega_ij,end+1) = a_omega_ij;
+
+            % Auxiliary matrix 
+            auxaoi = null(auxU(omega_ij,:)');
+            auxA(omega_ij,end+1) = auxaoi;
+        end
+    end
+
+    %update ranks
+    info.rankA = rank(A);
+    info.rankaux = rank(auxA);
+
+    %display info is verbose>0
+    if verbose>0
+        fprintf(' itr=%d, svalitr=%d, rank(auxA)=%d, rank(A)=%d\n', ...
+            info.itr, info.sval_itr, info.rankaux, info.rankA);
+    end
+
+    %terminate if max time limit reached
+    if ~isempty(Timer) && Timer.timelimit && toc>Timer.maxtime 
+        if verbose>0, fprintf('--LoR noisy Runtime limit reached, exiting\n'); end
+        Uhat = [];
+        info.completionFlag = false;
+        info.elapTime = toc(stic);
+        return
+    end
+end
+
+% Stitch all the projections into the whole subspace, given by
+% ker(A).  To avoid numerical issues, use svd instead of null.
+[Uhat,~,~] = svd(A);
+Uhat = Uhat(:,d-r+1:d);
+
+info.elapTime = toc(stic);
+end
+
+% ============ % ============ % ============ % ============ % ============ 
+
+
+
+
+
+% ============ % ============ % ============ % ============ % ============ 
+% ============ 2nd part of R2PCA: recover coefficients ============
+% ============ % ============ % ============ % ============ % ============ 
+
+function [Coeffs, info] = Sp(M, U, k, noiselevel, Timer, verbose )
+
+if nargin<6, verbose=1; end
+if nargin<5, Timer=[]; end
+if nargin<4, Coeffs=[]; info=[]; return; end
+
+stic = tic;
+info.elapTime = [];
+
+[d,N] = size(M);        % Dimensions of the problem
+r = size(U,2);          % rank of the low-rank component
+Coeffs = zeros(r,N);    % Matrix to keep the coefficients
+info.completionFlag = true;
+
+info.itr = 0;
+% ======== Look one column at a time ========
+for j=1:N
+    if verbose>0 && mod(j,100)==0, fprintf('\tj=%d\n',j); end
+
+    resp = 0;   % Have we already found r+1 uncorrupted entries in this column?
+    Mj = M(:,j);
+    
+    % ======== Start looking for uncorrupted entries ========
+    while resp==0
+        info.itr = info.itr + 1;
+        
+        % == Take r+1 random entries, and check if they are corrupted ==
+        oi = randsample(d,k);
+        Uoi = U(oi,:);
+        xoi = Mj(oi);
+        Coeffs(:,j) = (Uoi'*Uoi)\Uoi'*xoi;
+        xoiPerp = xoi-Uoi*Coeffs(:,j);
+        
+        % == If the entries are uncorrupted, use them to obtain a
+        % == coefficient and move on to the next column
+        if norm(xoiPerp)/norm(xoi) < noiselevel
+            resp = 1;
+        end
+
+        if ~isempty(Timer) && Timer.timelimit && toc>Timer.maxtime 
+            if verbose>0, fprintf('--Sp Runtime limit reached, exiting\n'); end
+            info.completionFlag = false;
+            info.elapTime = toc(stic);
+            return
+        end
+        
+    end
+end
+info.elapTime = toc(stic);
+
+end
+
+% ============ % ============ % ============ % ============ % ============ 
+
+
+% ============ % ============ % ============ % ============ % ============ 
+% =====================================================================
+% *** timelimit *** notes:
+%       -Valid class types: bool, numeric, stuct
+%           - if bool/logical: [true,false]
+%               if true, uses time limit, sets maxtime=100s 
+%               if false, does not use time limit
+%           - if numeric:
+%               if >0, uses time limit, sets maxtime=timelimit
+%               if <=0, does not use time limit
+%           - if struct:
+%               must contain fields .timelimit and .maxtime
+% 
+%   In the code, a struct 'Timer' is created with fields 
+%       Timer.timelimit and Timer.maxtime
+%   - Timer.timelimit is 0/1,t/f and determines whether a time limit
+%           will be used
+%   - Timer.maxtime is the max time to allow before terminating. 
+% =====================================================================
+function [T] = makeTimer(t)
+% default maxtime is 100s
+deftime = 120;
+switch class(t)
+    case 'numeric'
+        if t>0
+            T.timelimit=true;
+            T.maxtime=t;
+        else
+            T.timelimit=false;
+            T.maxtime=[];
+        end
+    case 'logical'
+        T.timelimit = t;
+        T.maxtime = deftime;
+    case 'struct'
+        T = t;
+        if ~isfield(T,'timelimit'), T.timelimit = false; end
+        if ~isfield(T,'maxtime'), T.maxtime = deftime; end
+    otherwise
+        T.timelimit=false;
+        T.maxtime=deftime;
+end
+end
+
+% ============ % ============ % ============ % ============ % ============ 
+
+
+
+
